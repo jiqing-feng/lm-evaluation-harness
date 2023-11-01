@@ -70,6 +70,7 @@ class HuggingFaceAutoLM(BaseLM):
     def __init__(
         self,
         pretrained: str,
+        assistant_pretrained: Optional[str] = None,
         quantized: Optional[Union[bool, str]] = False,
         tokenizer: Optional[str] = None,
         subfolder: Optional[str] = None,
@@ -103,6 +104,8 @@ class HuggingFaceAutoLM(BaseLM):
                 The HuggingFace Hub model ID name or the path to a pre-trained
                 model to load. This is effectively the `pretrained_model_name_or_path`
                 argument of `from_pretrained` in the HuggingFace `transformers` API.
+            assistant_pretrained (str):
+                Same as pretrained, it is used for assistant_decoding in generation.
             quantized (str or bool, optional, defaults to False):
                 File name of a GPTQ quantized model to load. Set to `True` to use the
                 default name of the quantized model.
@@ -242,6 +245,18 @@ class HuggingFaceAutoLM(BaseLM):
             low_cpu_mem_usage=low_cpu_mem_usage,
             **model_kwargs,
         )
+
+        # Aissitant model for speculative decoding
+        self.assistant_model = None
+        if assistant_pretrained:
+            self.assistant_model = self._create_auto_model(
+                pretrained=assistant_pretrained,
+                revision=revision,
+                subfolder=subfolder,
+                torch_dtype=_get_dtype(dtype, self._config),
+                low_cpu_mem_usage=low_cpu_mem_usage,
+                **model_kwargs,
+            )
         # note: peft_path can be different than pretrained model path
         if peft is not None:
             self.model = self._create_auto_model_peft(
@@ -572,6 +587,7 @@ class AutoCausalLM(HuggingFaceAutoLM):
 
         generations = self.model.generate(
             input_ids=input_ids,
+            assistant_model=self.assistant_model,
             attention_mask=attention_mask,
             # GPT style models require the `generate` `max_length` arg to include the
             # context length, so we instead set `max_new_tokens` which is the number
@@ -736,6 +752,7 @@ class AutoSeq2SeqLM(HuggingFaceAutoLM):
 
         generations = self.model.generate(
             input_ids=input_ids,
+            assistant_model=self.assistant_model,
             attention_mask=attention_mask,
             max_new_tokens=max_tokens,
             stopping_criteria=stopping_criteria,
